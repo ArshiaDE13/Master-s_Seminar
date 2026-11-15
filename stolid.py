@@ -9,6 +9,9 @@ using Gaussian cumulative distribution functions (CDF).
 import math
 from config import THETA_OVER, THETA_UNDER, TAU
 
+# Proactive overload risk threshold (triggers before aggregate demand hits 100% capacity)
+OVERLOAD_RISK_THRESHOLD = 0.15
+
 
 def standard_normal_cdf(x):
     """Cumulative distribution function for standard normal distribution Phi(x)."""
@@ -71,11 +74,6 @@ def calculate_underload_probability(host, resource_type):
 def detect_load_imbalance(hosts):
     """
     Partitions active hosts into Overloaded, Underloaded, and Normally-loaded sets.
-    Returns:
-        overloaded_hosts: list of Host objects (exists r_k: P_over > THETA_OVER)
-        underloaded_hosts: list of Host objects (forall r_k: P_under > THETA_UNDER)
-        normally_loaded_hosts: list of Host objects
-        overloaded_res_map: dict {host_id: [overloaded resource names]}
     """
     overloaded_hosts = []
     underloaded_hosts = []
@@ -91,7 +89,7 @@ def detect_load_imbalance(hosts):
         p_over = {res: calculate_overload_probability(host, res) for res in resources}
         p_under = {res: calculate_underload_probability(host, res) for res in resources}
 
-        over_resources = [res for res in resources if p_over[res] > THETA_OVER]
+        over_resources = [res for res in resources if p_over[res] > OVERLOAD_RISK_THRESHOLD]
         is_underloaded = all(p_under[res] > THETA_UNDER for res in resources)
 
         if len(over_resources) > 0:

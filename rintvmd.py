@@ -8,7 +8,9 @@ Implements exact Algorithms 1, 2, 3, and 4 (GBVMP) using fast local delta evalua
 import math
 import numpy as np
 from config import THETA_OVER, DELTA_INC
-from stolid import calculate_overload_probability, standard_normal_cdf
+from stolid import calculate_overload_probability, standard_normal_cdf, OVERLOAD_RISK_THRESHOLD
+
+SAFE_PLACEMENT_CAP = 0.85
 
 
 def get_vm_demand_by_resource(vm, resource_name):
@@ -39,13 +41,16 @@ def calculate_resource_weights(host, over_resources):
 
 
 def select_migrating_vms(overloaded_hosts, underloaded_hosts, over_res_map):
-    """Algorithm 1 (MNVMM): Selects minimal migrating VMs (Lines 1-28)."""
+    """Algorithm 1 (MNVMM): Selects minimal migrating VMs until host is relieved."""
     migrating_vms = []
 
     # 1. Process Overloaded Hosts
     for host in overloaded_hosts:
         over_res = over_res_map.get(host.id, ["cpu"])
-        while any(calculate_overload_probability(host, r) > THETA_OVER for r in ["cpu", "ram", "disk"]):
+        while (
+            any(calculate_overload_probability(host, r) > OVERLOAD_RISK_THRESHOLD for r in ["cpu", "ram", "disk"])
+            or host.get_utilization()["cpu"] >= 0.92
+        ):
             if len(host.vms) <= 1:
                 break
 
@@ -108,7 +113,7 @@ def calculate_required_resource_volume(migrating_vms):
         cap = cum_demand[res]
         sum_var = sum(v.get_stats(res)[1] ** 2 for v in migrating_vms)
         sigma = math.sqrt(max(sum_var, 1e-6))
-        
+
         l_iter = 1
         while True:
             z = (cap - cum_demand[res]) / sigma
@@ -117,7 +122,7 @@ def calculate_required_resource_volume(migrating_vms):
                 break
             cap += (cap * l_iter * DELTA_INC)
             l_iter += 1
-            
+
         l_req[res] = cap
 
     return l_req
@@ -128,7 +133,7 @@ def calculate_required_resource_volume(migrating_vms):
 # ============================================================================
 
 def select_destination_hosts(migrating_vms, normally_loaded_hosts, idle_hosts, l_req):
-    """Algorithm 3 (MNHPVM): Destination host selection (Lines 1-25)."""
+    """Algorithm 3 (MNHPVM): Destination host selection consistent with SAFE_PLACEMENT_CAP."""
     if not migrating_vms:
         return []
 
@@ -147,10 +152,7 @@ def select_destination_hosts(migrating_vms, normally_loaded_hosts, idle_hosts, l
         feasible = True
         for res, cap in [("cpu", host.total_mips), ("ram", host.total_ram_mb), ("disk", host.total_storage_mb)]:
             mu = host.used_mips if res == "cpu" else (host.used_ram_mb if res == "ram" else host.used_storage_mb)
-            new_mu = mu + d_alpha[res]
-            z = (cap - new_mu) / 1e-3
-            p_over = max(0.0, 1.0 - standard_normal_cdf(z))
-            if p_over > THETA_OVER:
+            if (mu + d_alpha[res]) > SAFE_PLACEMENT_CAP * cap:
                 feasible = False
                 break
         if feasible:
@@ -159,11 +161,11 @@ def select_destination_hosts(migrating_vms, normally_loaded_hosts, idle_hosts, l
     j_def = {}
     for res in ["cpu", "ram", "disk"]:
         if res == "cpu":
-            avail = sum(h.total_mips - h.used_mips for h in h_mat)
+            avail = sum(max(0.0, SAFE_PLACEMENT_CAP * h.total_mips - h.used_mips) for h in h_mat)
         elif res == "ram":
-            avail = sum(h.total_ram_mb - h.used_ram_mb for h in h_mat)
+            avail = sum(max(0.0, SAFE_PLACEMENT_CAP * h.total_ram_mb - h.used_ram_mb) for h in h_mat)
         else:
-            avail = sum(h.total_storage_mb - h.used_storage_mb for h in h_mat)
+            avail = sum(max(0.0, SAFE_PLACEMENT_CAP * h.total_storage_mb - h.used_storage_mb) for h in h_mat)
         j_def[res] = max(0.0, l_req[res] - avail)
 
     if any(val > 0 for val in j_def.values()):
@@ -176,14 +178,15 @@ def select_destination_hosts(migrating_vms, normally_loaded_hosts, idle_hosts, l
             )
             idle_distances.append((dist, h))
 
+        # Prioritize high-capacity consolidating hosts
         idle_distances.sort(key=lambda x: x[0], reverse=True)
 
         for _, host in idle_distances:
             h_des.append(host)
             host.is_active = True
-            j_def["cpu"] -= host.total_mips
-            j_def["ram"] -= host.total_ram_mb
-            j_def["disk"] -= host.total_storage_mb
+            j_def["cpu"] -= SAFE_PLACEMENT_CAP * host.total_mips
+            j_def["ram"] -= SAFE_PLACEMENT_CAP * host.total_ram_mb
+            j_def["disk"] -= SAFE_PLACEMENT_CAP * host.total_storage_mb
             if all(v <= 0 for v in j_def.values()):
                 break
 
@@ -218,7 +221,7 @@ def compute_hypothetical_pf(host, vm, mode="add"):
     u_ram = new_ram / host.total_ram_mb
     u_disk = new_disk / host.total_storage_mb
 
-    if u_cpu > 1.0 or u_ram > 1.0 or u_disk > 1.0:
+    if mode == "add" and (u_cpu > SAFE_PLACEMENT_CAP or u_ram > SAFE_PLACEMENT_CAP or u_disk > SAFE_PLACEMENT_CAP):
         return -float("inf")
 
     u_vals = [u_cpu, u_ram, u_disk]
@@ -236,7 +239,6 @@ def game_based_vm_placement(migrating_vms, destination_hosts):
     if not migrating_vms or not destination_hosts:
         return
 
-    # 1. Initial greedy placement based on highest PF improvement
     sorted_vms = sorted(migrating_vms, key=lambda v: v.current_mips_demand, reverse=True)
     for vm in sorted_vms:
         best_h = None
@@ -252,12 +254,10 @@ def game_based_vm_placement(migrating_vms, destination_hosts):
         best_h.is_active = True
         vm.current_host_id = best_h.id
 
-    # 2. Pre-calculate baseline state of destination hosts
     host_idx = {h.id: i for i, h in enumerate(destination_hosts)}
     pf_array = np.array([compute_host_pf(h) for h in destination_hosts], dtype=float)
     m = len(destination_hosts)
 
-    # 3. Game Iterations: VMs play best unilateral response in O(1) per check
     for _ in range(3):
         any_move = False
 
@@ -285,11 +285,10 @@ def game_based_vm_placement(migrating_vms, destination_hosts):
                 if target_pf_new == -float("inf"):
                     continue
 
-                if (target_host.used_mips + vm.current_mips_demand > 0.85 * target_host.total_mips or
-                    target_host.used_ram_mb + vm.current_ram_demand > 0.85 * target_host.total_ram_mb):
+                if (target_host.used_mips + vm.current_mips_demand > SAFE_PLACEMENT_CAP * target_host.total_mips or
+                    target_host.used_ram_mb + vm.current_ram_demand > SAFE_PLACEMENT_CAP * target_host.total_ram_mb):
                     continue
 
-                # Local delta evaluation of Eq. 21
                 target_pf_old = pf_array[target_i]
                 new_sum = curr_sum - curr_pf_old - target_pf_old + curr_pf_new + target_pf_new
 
