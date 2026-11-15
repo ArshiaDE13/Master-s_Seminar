@@ -19,7 +19,7 @@ DELTA_INC = 0.20    # Capacity increment rate in RRVPVM algorithm (delta)
 # Live migration parameters (Section 5.1)
 DIRTY_PAGE_MEAN = 0.4        # Mean dirty page memory rate DR (MB/s)
 DIRTY_PAGE_STD = 0.2         # Standard deviation of dirty page rate (MB/s)
-BANDWIDTH_MIGRATION = 100.0  # Dedicated network bandwidth for migration TR - DR (MB/s)
+BANDWIDTH_MIGRATION = 20.0   # Dedicated per-VM live migration bandwidth (MB/s)
 
 # Table 2: Physical Machine (Host) configurations
 # Heterogeneous datacenter with 5 models, 200 hosts each (total 1000 hosts)

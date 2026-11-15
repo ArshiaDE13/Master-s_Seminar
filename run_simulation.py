@@ -1,7 +1,7 @@
 # run_simulation.py
 """
 24-hour datacenter simulation loop for RO-VMC reproduction.
-Records hourly metric snapshots (Hours 6, 12, 18, 24) to JSON for visualization.
+Records hourly metric snapshots to JSON for visualization.
 Reference: Section 5 in Banerjee et al. (FGCS 2024).
 """
 
@@ -13,7 +13,7 @@ from config import HOST_SPECS, VM_SPECS, TOTAL_STEPS, TIME_STEP_MINUTES
 from models import Host, VM
 from workload_loader import load_workload_traces
 from mbfd import mbfd_placement
-from stolid import detect_load_imbalance, calculate_overload_probability
+from stolid import detect_load_imbalance
 from rintvmd import (
     select_migrating_vms,
     calculate_required_resource_volume,
@@ -54,7 +54,7 @@ def run_full_simulation():
         vm.update_demand(t["cpu"][0], t["ram"][0], t["disk"][0])
 
     print("[Simulation] Placing 5000 VMs onto hosts using MBFD...")
-    unplaced = mbfd_placement(hosts, vms)
+    mbfd_placement(hosts, vms)
     initial_active = sum(1 for h in hosts if h.is_active)
     print(f"[Simulation] Initial placement complete. Active Hosts: {initial_active}")
 
@@ -62,7 +62,6 @@ def run_full_simulation():
     timestep_hours = TIME_STEP_MINUTES / 60.0
     start_time = time.time()
 
-    # Time series storage for plotting
     history_records = {
         "step": [],
         "hour": [],
@@ -82,6 +81,24 @@ def run_full_simulation():
             vm.update_demand(t["cpu"][step], t["ram"][step], t["disk"][step])
             vm.total_mips_requested += vm.current_mips_demand * (TIME_STEP_MINUTES * 60)
 
+        # 1. StoLID Detection & RintVMD Consolidation for current timestep
+        active_hosts = [h for h in hosts if h.is_active and len(h.vms) > 0]
+        overloaded, underloaded, normal, over_res_map = detect_load_imbalance(active_hosts)
+
+        if len(overloaded) > 0 or len(underloaded) > 0:
+            migrating_vms = select_migrating_vms(overloaded, underloaded, over_res_map)
+            if migrating_vms:
+                total_migrations += len(migrating_vms)
+                for m_vm in migrating_vms:
+                    mig_time_sec = calculate_migration_time(m_vm)
+                    m_vm.total_mips_degraded += 0.1 * m_vm.current_mips_demand * mig_time_sec
+
+                l_req = calculate_required_resource_volume(migrating_vms)
+                idle_hosts = [h for h in hosts if not h.is_active]
+                dest_hosts = select_destination_hosts(migrating_vms, normal, idle_hosts, l_req)
+                game_based_vm_placement(migrating_vms, dest_hosts)
+
+        # 2. Record post-consolidation energy, active time, and SLA saturation (Eq. 9)
         step_active_hosts = 0
         step_power_watts = 0.0
         cpu_utils, ram_utils, disk_utils = [], [], []
@@ -99,7 +116,7 @@ def run_full_simulation():
                 ram_utils.append(u["ram"])
                 disk_utils.append(u["disk"])
 
-                if any(calculate_overload_probability(h, r) > 0.80 for r in ["cpu", "ram", "disk"]):
+                if u["cpu"] >= 1.0:
                     h.total_overload_time += 1
             else:
                 h.is_active = False
@@ -107,7 +124,6 @@ def run_full_simulation():
         hour = (step * TIME_STEP_MINUTES) // 60
         minute = (step * TIME_STEP_MINUTES) % 60
 
-        # Record metrics
         history_records["step"].append(step)
         history_records["hour"].append(hour + minute / 60.0)
         history_records["active_hosts"].append(step_active_hosts)
@@ -117,24 +133,6 @@ def run_full_simulation():
         history_records["avg_disk_util"].append(float(np.mean(disk_utils) * 100.0) if disk_utils else 0.0)
         history_records["total_migrations"].append(total_migrations)
 
-        # StoLID Detection & RintVMD Consolidation
-        active_hosts = [h for h in hosts if h.is_active]
-        overloaded, underloaded, normal, over_res_map = detect_load_imbalance(active_hosts)
-
-        if len(overloaded) > 0 or len(underloaded) > 0:
-            migrating_vms = select_migrating_vms(overloaded, underloaded, over_res_map)
-            if migrating_vms:
-                total_migrations += len(migrating_vms)
-                for m_vm in migrating_vms:
-                    mig_time_sec = calculate_migration_time(m_vm)
-                    m_vm.total_mips_degraded += 0.1 * m_vm.current_mips_demand * mig_time_sec
-
-                l_req = calculate_required_resource_volume(migrating_vms)
-                idle_hosts = [h for h in hosts if not h.is_active]
-                dest_hosts = select_destination_hosts(migrating_vms, normal, idle_hosts, l_req)
-                game_based_vm_placement(migrating_vms, dest_hosts)
-
-        # Progress monitor
         elapsed = time.time() - start_time
         progress = (step + 1) / TOTAL_STEPS * 100.0
         sys.stdout.write(
@@ -169,7 +167,6 @@ def run_full_simulation():
     print(f"{'SLAV':<30} | {results['SLAV']:<20.5f} | {'0.078':<20}")
     print("-" * 75)
 
-    # Save history to JSON file
     with open("simulation_history.json", "w") as f:
         json.dump(history_records, f, indent=2)
     print("[Simulation] Time-series history successfully exported to 'simulation_history.json'.")

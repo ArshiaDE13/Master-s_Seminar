@@ -6,7 +6,7 @@ Calculates:
   - Total Energy Consumption (kWh - Eq. 8)
   - SLATAH (SLA violation Time per Active Host - Eq. 9)
   - PDM (Performance Degradation due to Migration - Eq. 10 & 11)
-  - SLAV (Combined SLA Violation metric - Eq. 12)
+  - SLAV (Combined SLA Violation metric - Eq. 12, Table 6 percentage scale)
   - VM Migration frequency
 """
 
@@ -17,8 +17,7 @@ from config import BANDWIDTH_MIGRATION
 def calculate_migration_time(vm):
     """
     Estimates migration time for VM v_j (Section 5.1).
-    Network bandwidth dedicated to migration is 100 MB/s.
-    Migration Time = RAM size (MB) / 100 MB/s.
+    Migration Time = RAM size (MB) / dedicated per-VM bandwidth (MB/s).
     """
     return vm.ram_mb / BANDWIDTH_MIGRATION
 
@@ -49,8 +48,8 @@ def compute_simulation_metrics(hosts, vms, total_migrations, simulation_hours=24
 
     pdm = float(np.mean(pdm_ratios)) if pdm_ratios else 0.0
 
-    # 3. SLAV Calculation (Eq. 12): SLATAH * PDM
-    slav = slatah * pdm
+    # 3. SLAV Calculation (Eq. 12, Table 6 percentage scale): SLATAH(%) * PDM(%)
+    slav = (slatah * 100.0) * (pdm * 100.0)
 
     # 4. Hourly Migration Frequency
     vmm_per_hour = total_migrations / simulation_hours
