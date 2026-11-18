@@ -10,7 +10,7 @@ import math
 from config import THETA_OVER, THETA_UNDER, TAU
 
 # Proactive overload risk threshold (triggers before aggregate demand hits 100% capacity)
-OVERLOAD_RISK_THRESHOLD = 0.15
+OVERLOAD_RISK_THRESHOLD = 0.18
 
 
 def standard_normal_cdf(x):
