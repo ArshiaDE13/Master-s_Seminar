@@ -66,12 +66,12 @@ Results from a complete 24-hour run under calibrated Bitbrains diurnal workloads
 
 | Metric | Reproduced Result | Paper Baseline (Table 6) |
 | :--- | :---: | :---: |
-| **Total Migrations (24h)** | 1,283 | ~1,545 |
-| **VMM / hr** | 53.46 | 64.40 |
-| **Average Hourly Power (kW)** | 22.90 | 27.20 |
-| **SLATAH (%)** | 2.38% | 2.97% |
-| **PDM (%)** | 0.0201% | 0.026% |
-| **SLAV** | 0.04785 | 0.078 |
+| **Total Migrations (24h)** | 1,338 | ~1,545 |
+| **VMM / hr** | 55.75 | 64.40 |
+| **Average Hourly Power (kW)** | 26.39 | 27.20 |
+| **SLATAH (%)** | 3.01% | 2.97% |
+| **PDM (%)** | 0.0217% | 0.026% |
+| **SLAV** | 0.06519 | 0.078 |
 
 *(Note: Minor variations between the reproduced figures and Table 6 arise from the stochastic nature of the synthetic diurnal Bitbrains workload traces.)*
 
