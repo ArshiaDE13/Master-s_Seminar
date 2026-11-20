@@ -10,7 +10,7 @@ import numpy as np
 from config import THETA_OVER, DELTA_INC
 from stolid import calculate_overload_probability, standard_normal_cdf, OVERLOAD_RISK_THRESHOLD
 
-SAFE_PLACEMENT_CAP = 0.85
+SAFE_PLACEMENT_CAP = 0.86
 
 
 def get_vm_demand_by_resource(vm, resource_name):
