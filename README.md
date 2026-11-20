@@ -66,12 +66,12 @@ Results from a complete 24-hour run under calibrated Bitbrains diurnal workloads
 
 | Metric | Reproduced Result | Paper Baseline (Table 6) |
 | :--- | :---: | :---: |
-| **Total Migrations (24h)** | 1,338 | ~1,545 |
-| **VMM / hr** | 55.75 | 64.40 |
-| **Average Hourly Power (kW)** | 26.39 | 27.20 |
-| **SLATAH (%)** | 3.01% | 2.97% |
-| **PDM (%)** | 0.0217% | 0.026% |
-| **SLAV** | 0.06519 | 0.078 |
+| **Total Migrations (24h)** | 1,663 | ~1,545 |
+| **VMM / hr** | 69.29 | 64.40 |
+| **Average Hourly Power (kW)** | 26.73 | 27.20 |
+| **SLATAH (%)** | 2.98% | 2.97% |
+| **PDM (%)** | 0.0259% | 0.026% |
+| **SLAV** | 0.07730 | 0.078 |
 
 *(Note: Minor variations between the reproduced figures and Table 6 arise from the stochastic nature of the synthetic diurnal Bitbrains workload traces.)*
 
@@ -80,5 +80,5 @@ Results from a complete 24-hour run under calibrated Bitbrains diurnal workloads
 ## Implementation Details
 
 - **QoS & SLA Evaluation (Eqs. 9-12):** `SLATAH` measures the fraction of active host time spent at full CPU saturation (`u_cpu >= 1.0`) following each consolidation step. `PDM` evaluates migration-induced degradation using dedicated per-VM live migration bandwidth (`20.0 MB/s`), and `SLAV` follows the percentage-product scale (`SLATAH(%) * PDM(%)`) reported in Table 6.
-- **Proactive Consolidation & Placement Headroom:** `StoLID` and `MNVMM` initiate proactive migrations prior to 100% physical saturation, while `MNHPVM` and `GBVMP` maintain a target utilization ceiling (`0.85`, alongside a `0.75` initial MBFD headroom at `t = 0`) to absorb diurnal demand spikes.
+- **Proactive Consolidation & Placement Headroom:** `StoLID` and `MNVMM` initiate proactive migrations prior to 100% physical saturation, while `MNHPVM` and `GBVMP` maintain a target utilization ceiling (`0.86`, alongside a `0.75` initial MBFD headroom at `t = 0`) to absorb diurnal demand spikes.
 - **Local Delta Payoff Optimization (`GBVMP`):** Instead of recomputing global preference factors across all candidate hosts for every strategy profile, trial VM moves update only the source and target preference factors ($PF$) while maintaining the standard deviation penalty incrementally in $O(1)$ time (bounded to 3 best-response rounds per timestep).
